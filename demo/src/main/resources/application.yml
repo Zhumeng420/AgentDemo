@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: demo
+
+agentscope:
+  core:
+    model:
+      dashscope:
+        api-key: ${DASHSCOPE_API_KEY}  # ???????
+        model-name: qwen-plus-latest   # ????Plus??
+    agent:
+      max-steps: 10                    # ??????
