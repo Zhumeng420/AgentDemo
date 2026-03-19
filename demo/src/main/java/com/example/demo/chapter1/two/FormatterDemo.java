@@ -1,5 +1,6 @@
-package com.example.demo.chapter1;
+package com.example.demo.chapter1.two;
 
+import com.example.demo.chapter1.one.TicketInfo;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -17,7 +18,7 @@ public class FormatterDemo {
         // 1. 配置阿里云通义千问模型 (AgentScope 原生支持 DashScope)
         DashScopeChatModel model = DashScopeChatModel.builder()
                 .apiKey(apikey)
-                .modelName("qwen-max")
+                .modelName("qwen-plus")
                 .build();
 
         // 2. 构建ActAgent

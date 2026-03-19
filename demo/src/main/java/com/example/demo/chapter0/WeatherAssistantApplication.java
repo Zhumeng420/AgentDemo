@@ -105,7 +105,6 @@ public class WeatherAssistantApplication {
                 System.out.println("\n回答：" + response.getTextContent());
                 System.out.println("========================================\n");
             }
-
             // 关闭 Scanner
             scanner.close();
         };
