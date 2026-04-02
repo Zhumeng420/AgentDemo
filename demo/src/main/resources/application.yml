@@ -1,3 +1,6 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: demo
@@ -8,8 +11,7 @@ spring:
         version: 1.0.0
         # 指定使用流式HTTP无状态协议
         protocol: STREAMABLE
-  server:
-    port: 8080
+
 
 agentscope:
   core:
