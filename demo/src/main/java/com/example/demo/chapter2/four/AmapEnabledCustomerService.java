@@ -14,14 +14,19 @@ import java.time.Duration;
 
 public class AmapEnabledCustomerService {
 
-    private static String apikey = "sk-xxxxxxxx";
+    private static String apikey = "sk-034c7aa31c7f44b18e8f27c0119b72ac";
+    //如果报错先安装这个
     //npm install -g @amap/amap-maps-mcp-server --registry=https://registry.npmjs.org
     public static ReActAgent buildAgent() {
         // 1. 创建高德地图MCP客户端 (StdIO传输)
         // 使用npx动态拉取并执行开源包
+
+        // 针对 Windows 系统的兼容性处理
+        String npxCommand = System.getProperty("os.name").toLowerCase().contains("win")? "npx.cmd" : "npx";
+
         System.out.println("正在初始化高德地图MCP子进程...");
         McpClientWrapper amapMcpClient = McpClientBuilder.create("amap-location-service")
-                .stdioTransport("npx", "--registry=https://registry.npmjs.org","-y", "-q","@amap/amap-maps-mcp-server")
+                .stdioTransport(npxCommand , "--registry=https://registry.npmjs.org","-y", "-q","@amap/amap-maps-mcp-server")
                 .timeout(Duration.ofSeconds(60))
                 .buildAsync()
                 .block();

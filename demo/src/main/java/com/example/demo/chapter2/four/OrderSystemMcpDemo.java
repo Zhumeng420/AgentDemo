@@ -25,7 +25,7 @@ import java.time.Duration;
 @SpringBootApplication
 public class OrderSystemMcpDemo {
 
-    private static String apikey = "sk-xxxxxxxxx";
+    private static String apikey = "sk-034c7aa31c7f44b18e8f27c0119b72ac";
 
     public static void main(String args[]) {
         // 1. 启动 Spring Boot，底层会自动将标注了 @McpTool 的方法暴露为 MCP 服务 [2, 1]
