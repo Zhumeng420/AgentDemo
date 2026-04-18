@@ -170,6 +170,12 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>io.agentscope</groupId>
+			<artifactId>agentscope-extensions-autocontext-memory</artifactId>
+			<version>1.0.11</version>
+		</dependency>
+
 
 
 	</dependencies>
