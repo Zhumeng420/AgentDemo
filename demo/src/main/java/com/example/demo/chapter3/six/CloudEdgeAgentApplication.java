@@ -1,4 +1,4 @@
-package com.example.demo.chapter6;
+package com.example.demo.chapter3.six;
 
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.message.MsgRole;
