@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 8081
 
 spring:
   application:
@@ -12,12 +12,9 @@ spring:
         # 指定使用流式HTTP无状态协议
         protocol: STREAMABLE
 
+nacos:
+  server-addr: 127.0.0.1:8848
+  username: nacos
+  password: zhumeng420
 
-agentscope:
-  core:
-    model:
-      dashscope:
-        api-key: ${DASHSCOPE_API_KEY}  # ???????
-        model-name: qwen-plus-latest   # ????Plus??
-    agent:
-      max-steps: 10                    # ??????
+

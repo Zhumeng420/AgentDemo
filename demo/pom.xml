@@ -176,6 +176,23 @@
 			<version>1.0.11</version>
 		</dependency>
 
+		<dependency>
+			<groupId>io.agentscope</groupId>
+			<artifactId>agentscope-extensions-nacos-a2a</artifactId>
+			<version>1.0.11</version>
+		</dependency>
+
+		<dependency>
+			<groupId>io.agentscope</groupId>
+			<artifactId>agentscope-a2a-spring-boot-starter</artifactId>
+			<version>1.0.11</version>
+		</dependency>
+		<dependency>
+			<groupId>io.agentscope</groupId>
+			<artifactId>agentscope-nacos-spring-boot-starter</artifactId>
+			<version>1.0.11</version>
+		</dependency>
+
 
 
 	</dependencies>
