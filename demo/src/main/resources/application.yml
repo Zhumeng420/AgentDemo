@@ -17,4 +17,14 @@ nacos:
   username: nacos
   password: zhumeng420
 
-
+agentscope:
+  nacos:
+    server-addr: 127.0.0.1:8848
+    username: nacos
+    password: 6vGzZaDdUCU8
+  a2a:
+    nacos:
+      registry:
+        enabled: true
+        set-as-latest: true
+        enabled-register-endpoint: true

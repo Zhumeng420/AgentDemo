@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 
-@SpringBootApplication(exclude = {Neo4jAutoConfiguration.class})
+@SpringBootApplication(exclude = {Neo4jAutoConfiguration.class, io.agentscope.spring.boot.nacos.AgentscopeNacosPromptAutoConfiguration.class})
 public class FinanceAgentServerApplication {
 
     public static void main(String args[]) {
@@ -19,7 +19,7 @@ public class FinanceAgentServerApplication {
     public ReActAgent financeAgent() {
         // 1. 初始化真实的 LLM（请替换为你真实的阿里云百炼 API-KEY）
         DashScopeChatModel model = DashScopeChatModel.builder()
-                .apiKey(System.getenv("DASHSCOPE_API_KEY"))
+                .apiKey("sk-1xxxxx")
                 .modelName("qwen-plus")
                 .build();
 

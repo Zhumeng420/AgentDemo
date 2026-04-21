@@ -21,7 +21,7 @@ public class FinanceAgentServer {
         Properties properties = new Properties();
         properties.put(PropertyKeyConst.SERVER_ADDR, "127.0.0.1:8848");
         properties.put(PropertyKeyConst.USERNAME, "nacos");
-        properties.put(PropertyKeyConst.PASSWORD, "zhumeng420");
+        properties.put(PropertyKeyConst.PASSWORD, "6vGzZaDdUCU8");
         AiService aiService = AiFactory.createAiService(properties);
 
         // 2. 编排 Nacos A2A 注册中心心跳及端点策略参数
