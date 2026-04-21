@@ -21,7 +21,7 @@ public class CloudEdgeSupervisorClient {
             Properties properties = new Properties();
             properties.put(PropertyKeyConst.SERVER_ADDR, "127.0.0.1:8848");
             properties.put(PropertyKeyConst.USERNAME, "nacos");
-            properties.put(PropertyKeyConst.PASSWORD, "6vGzZaDdUCU8");
+            properties.put(PropertyKeyConst.PASSWORD, "woTZnqgBs1V8");
             AiService aiService = AiFactory.createAiService(properties);
             System.out.println("[系统] 成功连接至 Nacos 注册中心.");
 
@@ -41,13 +41,15 @@ public class CloudEdgeSupervisorClient {
             System.out.println("\n[用户输入] : " + userQuery);
             System.out.println("[总控智能体] 意图判定为：[售后退款]。开始通过 A2A 协议委派跨节点 Task 给 Finance Agent...");
 
-            // 4. 发起真实的网络层 A2A 协议调用，利用 block() 实现同步线程阻塞等待对方的 Artifact 产物返回
+            // 4. 发起真实的网络层 A2A 协议调用，使用响应式编程实现流式输出
             Msg requestMsg = Msg.builder().role(MsgRole.USER).textContent(userQuery).build();
-            Msg response = financeAgent.call(requestMsg).block(Duration.ofSeconds(120));
-
-            // 5. 将远端智能体的处理成果透传给用户
-            System.out.println("\n[退款风控智能体] 返回结果: " + response.getTextContent());
-            System.out.println("\n=== A2A 多智能体交互流程结束 ===");
+            
+            // 5. 使用响应式编程处理流式数据
+            System.out.print("\n[退款风控智能体] 返回结果: ");
+            financeAgent.call(requestMsg)
+                .doOnNext(response -> System.out.print(response.getTextContent()))
+                .doOnTerminate(() -> System.out.println("\n\n=== A2A 多智能体交互流程结束 ==="))
+                .block(Duration.ofSeconds(120));
 
         } catch (Exception e) {
             System.err.println("系统异常，请检查 Nacos (127.0.0.1:8848) 以及服务端的 FinanceAgentServer 是否均已成功启动。");
