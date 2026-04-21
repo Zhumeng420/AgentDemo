@@ -6,17 +6,22 @@ import com.alibaba.nacos.api.ai.AiService;
 import com.alibaba.nacos.api.exception.NacosException;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.a2a.agent.A2aAgent;
+import io.agentscope.core.hook.Hook;
+import io.agentscope.core.hook.HookEvent;
+import io.agentscope.core.hook.PostCallEvent;
+import io.agentscope.core.hook.PreActingEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.model.DashScopeChatModel;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.nacos.a2a.discovery.NacosAgentCardResolver;
+import io.agentscope.core.tool.Tool;
+import io.agentscope.core.tool.ToolParam;
 import io.agentscope.core.tool.Toolkit;
-import jakarta.annotation.PostConstruct;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Properties;
 
 /**
@@ -32,7 +37,6 @@ import java.util.Properties;
  * - 通过 Toolkit 将远程 Agent 转换为本地可调用的 Tool，实现"大一统"的工具调用范式
  * - Supervisor Agent 具备全局视野，根据子 Agent 的返回结果自主决策下一步操作
  */
-@Service
 public class SupervisorCoordinatorService {
 
     /** Nacos AI 服务实例，用于连接 Nacos 注册中心并获取服务元数据 */
@@ -68,15 +72,8 @@ public class SupervisorCoordinatorService {
 
     /**
      * 初始化方法（Spring 生命周期钩子）
-     *
-     * 采用 @PostConstruct 的原因：
-     * 1. Nacos 连接、Agent 代理构建、Toolkit 注册等操作属于一次性初始化开销
-     * 2. 如果放在业务方法中每次调用都会重复执行，严重影响性能
-     * 3. Spring 会在 Bean 初始化完成后自动调用此方法，确保服务启动时完成所有准备工作
-     *
      * @throws NacosException 如果无法连接到 Nacos 注册中心
      */
-    @PostConstruct
     public void init() throws NacosException {
         // ==================== 步骤1：Nacos 连接配置 ====================
         // 构建 Nacos 客户端连接属性，包含注册中心地址和认证凭据
@@ -102,10 +99,16 @@ public class SupervisorCoordinatorService {
                 .agentCardResolver(resolver)
                 .build();
 
-        // ==================== 步骤4：将远程 Agent 转换为本地 Tool ====================
+        // ==================== 步骤4：创建封装远程 Agent 调用的本地 Tool ====================
+        // 使用 @Tool 注解创建工具类，让框架自动处理方法签名
+        RemoteOrderAgentTool orderTool = new RemoteOrderAgentTool(remoteOrderAgent);
+        RemoteAfterSalesAgentTool afterSalesTool = new RemoteAfterSalesAgentTool(remoteAfterSalesAgent);
+
         toolkit = new Toolkit();
-        toolkit.registerTool(remoteOrderAgent);
-        toolkit.registerTool(remoteAfterSalesAgent);
+        toolkit.registration()
+                .tool(orderTool)
+                .tool(afterSalesTool)
+                .apply();
 
         // ==================== 步骤5：配置模型执行参数 ====================
         ExecutionConfig execConfig = ExecutionConfig.builder()
@@ -124,17 +127,29 @@ public class SupervisorCoordinatorService {
         // 2. 解析用户诉求，决定调用哪些子 Agent
         // 3. 根据子 Agent 的返回结果进行下一步决策
         // 4. 最终汇总所有信息，向用户返回完整的处理结果
+
+        // 创建自定义 Hook 用于监控远程 Agent 调用
+        AgentCallMonitorHook monitorHook = new AgentCallMonitorHook();
+
         supervisorAgent = ReActAgent.builder()
                 .name("CustomerServiceSupervisor")
                 .model(model)
                 .toolkit(toolkit)  // 注入工具包，使 Supervisor 能够调用订单专家和售后专家
                 .modelExecutionConfig(execConfig)  // 注入执行配置
+                .hooks(List.of(monitorHook))  // 挂载监控钩子
                 // 系统提示词（System Prompt）：制定严苛的 SOP（标准作业程序）约束
-                // 核心规则：必须先查订单状态，再根据事实依据决定是否发起售后工单
-                .sysPrompt("你是一名资深的客户体验主管，负责调度内部系统。你拥有两个能力强悍的助手：订单专家和售后专家。\n" +
-                        "核心原则：面对用户的多重诉求，你不能瞎猜状态。必须【首先】调用订单专家获取权威的订单流转状态。\n" +
-                        "【随后】，如果事实依据表明需要退款或赔偿，你才被允许调用售后专家发起工单。\n" +
-                        "最后，由你汇总双方的信息，以专业、亲切的语气向用户解释全流程处理结果。")
+                .sysPrompt("你是一名资深的客户体验主管，负责调度内部系统。你拥有两个能力强悍的助手：订单专家（order-agent）和售后专家（after-sales-agent）。\n" +
+                        "\n" +
+                        "【核心规则 - 必须遵守】\n" +
+                        "当用户询问订单状态时，你【必须】调用 order-agent 工具。\n" +
+                        "当需要发起退款或赔偿时，你【必须】调用 after-sales-agent 工具。\n" +
+                        "你【禁止】在回复中只是口头描述要做什么，必须【实际调用】工具。\n" +
+                        "\n" +
+                        "【执行流程】\n" +
+                        "1. 调用 order-agent 查询订单 20260421001 的详细状态\n" +
+                        "2. 读取返回的订单状态信息\n" +
+                        "3. 如果确认存在质量问题，调用 after-sales-agent 发起工单\n" +
+                        "4. 汇总所有信息，向用户提供最终回复")
                 .build();
     }
 
@@ -185,46 +200,139 @@ public class SupervisorCoordinatorService {
      * 2. order-agent 和 after-sales-agent 已注册到 Nacos
      * 3. 环境变量 DASHSCOPE_API_KEY 已配置
      */
-    public static void main(String[] args) {
-        System.out.println("====== 初始化 Spring 容器 ======");
+    public static void main(String[] args) throws NacosException {
+        System.out.println("====== 初始化 SupervisorCoordinatorService ======");
 
-        // 手动构建 Spring 应用上下文（AnnotationConfigApplicationContext）
-        // 由于 SupervisorCoordinatorService 是一个 @Service 注解的类，
-        // 我们需要使用 AnnotationConfigApplicationContext 来加载它
-        try (AnnotationConfigApplicationContext context =
-                     new AnnotationConfigApplicationContext(SupervisorCoordinatorService.class)) {
+        SupervisorCoordinatorService supervisorCoordinatorService = new SupervisorCoordinatorService();
+        supervisorCoordinatorService.init();
 
-            System.out.println("====== Spring 容器初始化完成 ======");
+        // 构造测试用例：模拟用户投诉场景
+        String userComplaint = "我上周购买的 iPhone 15 Pro Max 订单号 20260421001，收到后发现屏幕有坏点，" +
+                "而且物流磕碰导致边框有划痕。我要求全额退款并重新发货。";
 
-            // 从容器中获取 SupervisorCoordinatorService Bean
-            SupervisorCoordinatorService service = context.getBean(SupervisorCoordinatorService.class);
+        System.out.println("====== 用户投诉内容 ======");
+        System.out.println(userComplaint);
+        System.out.println("=========================\n");
 
-            // 构造测试用例：模拟用户投诉场景
-            String userComplaint = "我上周购买的 iPhone 15 Pro Max 订单号 20260421001，收到后发现屏幕有坏点，" +
-                    "而且物流磕碰导致边框有划痕。我要求全额退款并重新发货。";
+        // 调用服务处理投诉
+        long startTime = System.currentTimeMillis();
+        String result = supervisorCoordinatorService.processComplexCustomerRequest(userComplaint);
+        long endTime = System.currentTimeMillis();
 
-            System.out.println("====== 用户投诉内容 ======");
-            System.out.println(userComplaint);
-            System.out.println("=========================\n");
+        // 输出处理结果
+        System.out.println("\n====== Supervisor 处理结果 ======");
+        System.out.println(result);
+        System.out.println("\n====== 执行耗时: " + (endTime - startTime) / 1000.0 + " 秒 ======");
+    }
 
-            // 调用服务处理投诉
-            long startTime = System.currentTimeMillis();
-            String result = service.processComplexCustomerRequest(userComplaint);
-            long endTime = System.currentTimeMillis();
+    /**
+     * Agent 调用监控钩子
+     *
+     * 用于监控以下关键事件：
+     * 1. 远程 Agent 的工具调用（PreActingEvent）- 监控何时调用了 order-agent 或 after-sales-agent
+     * 2. Agent 响应（PostCallEvent）- 监控远程 Agent 返回的内容
+     *
+     * 通过这个 Hook，可以观察到 Supervisor 是否真的调用了远程 Agent，以及远程 Agent 的输出内容
+     */
+    public static class AgentCallMonitorHook implements Hook {
 
-            // 输出处理结果
-            System.out.println("\n====== Supervisor 处理结果 ======");
-            System.out.println(result);
-            System.out.println("\n====== 执行耗时: " + (endTime - startTime) / 1000.0 + " 秒 ======");
+        @Override
+        public int priority() {
+            return 1;  // 高优先级，确保在其他 Hook 之前执行
+        }
 
-        } catch (Exception e) {
-            System.err.println("====== 运行时发生异常 ======");
-            e.printStackTrace();
-            System.err.println("=========================");
-            System.err.println("请检查以下条件是否满足：");
-            System.err.println("1. Nacos 注册中心（127.0.0.1:8848）是否已启动");
-            System.err.println("2. order-agent 和 after-sales-agent 是否已注册到 Nacos");
-            System.err.println("3. 环境变量 DASHSCOPE_API_KEY 是否已配置");
+        @Override
+        public <T extends HookEvent> Mono<T> onEvent(T event) {
+            // 拦截工具执行前事件，监控是否在调用远程 Agent
+            if (event instanceof PreActingEvent preActingEvent) {
+                String toolName = preActingEvent.getToolUse().getName();
+                String toolInput = preActingEvent.getToolUse().getInput().toString();
+
+                System.out.println("\n========== [Hook-监控] 检测到工具调用 ==========");
+                System.out.println(">>> 工具名称: " + toolName);
+                System.out.println(">>> 调用参数: " + toolInput);
+
+                // 判断是否是远程 Agent（order-agent 或 after-sales-agent）
+                if ("order-agent".equals(toolName) || "after-sales-agent".equals(toolName)) {
+                    System.out.println(">>> [重要] 检测到远程 Agent 调用！正在通过 A2A 协议委派任务...");
+                }
+                System.out.println("==============================================\n");
+            }
+
+            // 拦截 Agent 调用完成事件，监控返回结果
+            if (event instanceof PostCallEvent postCallEvent) {
+                Msg response = postCallEvent.getFinalMessage();
+                if (response != null) {
+                    String agentName = postCallEvent.getAgent() != null ? postCallEvent.getAgent().getName() : "Unknown";
+                    String responseContent = response.getTextContent();
+
+                    System.out.println("\n========== [Hook-监控] Agent 响应回调 ==========");
+                    System.out.println(">>> Agent 名称: " + agentName);
+                    System.out.println(">>> 响应内容: " + (responseContent.length() > 200
+                            ? responseContent.substring(0, 200) + "..."
+                            : responseContent));
+                    System.out.println("==============================================\n");
+                }
+            }
+
+            return Mono.just(event);
+        }
+    }
+
+    /**
+     * 远程订单 Agent 的本地工具封装类
+     * 使用 @Tool 注解让框架自动提取方法签名并生成 Function Calling 接口
+     */
+    public static class RemoteOrderAgentTool {
+        private final A2aAgent agent;
+
+        public RemoteOrderAgentTool(A2aAgent agent) {
+            this.agent = agent;
+        }
+
+        @Tool(description = "查询订单状态和物流信息。当用户提供订单号时，必须使用此工具查询订单的当前状态。")
+        public String queryOrderStatus(
+                @ToolParam(name = "orderId", description = "需要查询的订单号") String orderId
+        ) {
+            try {
+                Msg requestMsg = Msg.builder()
+                        .role(MsgRole.USER)
+                        .textContent("请查询订单 " + orderId + " 的状态")
+                        .build();
+                Msg response = agent.call(requestMsg).block(Duration.ofSeconds(30));
+                return response != null ? response.getTextContent() : "查询超时";
+            } catch (Exception e) {
+                return "查询失败: " + e.getMessage();
+            }
+        }
+    }
+
+    /**
+     * 远程售后 Agent 的本地工具封装类
+     * 使用 @Tool 注解让框架自动提取方法签名并生成 Function Calling 接口
+     */
+    public static class RemoteAfterSalesAgentTool {
+        private final A2aAgent agent;
+
+        public RemoteAfterSalesAgentTool(A2aAgent agent) {
+            this.agent = agent;
+        }
+
+        @Tool(description = "发起售后工单，包括退款、换货等。当确认需要处理质量问题时，使用此工具发起工单。")
+        public String createAfterSalesTicket(
+                @ToolParam(name = "orderId", description = "订单号") String orderId,
+                @ToolParam(name = "reason", description = "售后原因") String reason
+        ) {
+            try {
+                Msg requestMsg = Msg.builder()
+                        .role(MsgRole.USER)
+                        .textContent("为订单 " + orderId + " 发起售后工单，原因：" + reason)
+                        .build();
+                Msg response = agent.call(requestMsg).block(Duration.ofSeconds(30));
+                return response != null ? response.getTextContent() : "工单提交超时";
+            } catch (Exception e) {
+                return "工单提交失败: " + e.getMessage();
+            }
         }
     }
 }
