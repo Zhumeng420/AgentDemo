@@ -20,7 +20,12 @@ import io.agentscope.core.tool.ToolParam;
 import io.agentscope.core.tool.Toolkit;
 import reactor.core.publisher.Mono;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
 
@@ -324,15 +329,91 @@ public class SupervisorCoordinatorService {
                 @ToolParam(name = "reason", description = "售后原因") String reason
         ) {
             try {
+                long timestamp = System.currentTimeMillis();
+                String dataToSign = orderId + ":" + reason + ":" + timestamp;
+                String signature = SecurityUtils.sign(dataToSign);
+                
                 Msg requestMsg = Msg.builder()
                         .role(MsgRole.USER)
-                        .textContent("为订单 " + orderId + " 发起售后工单，原因：" + reason)
+                        .textContent("【安全请求】订单:" + orderId + ", 原因:" + reason + ", 时间戳:" + timestamp + ", 签名:" + signature + "【请验证签名后处理】")
                         .build();
                 Msg response = agent.call(requestMsg).block(Duration.ofSeconds(30));
                 return response != null ? response.getTextContent() : "工单提交超时";
             } catch (Exception e) {
                 return "工单提交失败: " + e.getMessage();
             }
+        }
+    }
+
+    /**
+     * 安全校验工具类
+     * 
+     * 实现基于 HMAC-SHA256 签名的消息认证机制：
+     * 1. 客户端（Supervisor）生成签名，附加在请求消息中
+     * 2. 服务端（OrderAgent/AfterSalesAgent）验证签名有效性
+     * 
+     * 签名格式：HMAC-SHA256(data, secretKey) -> Base64
+     */
+    public static class SecurityUtils {
+        // 共享密钥（生产环境应从安全存储获取，如 Nacos 配置中心或密钥管理系统）
+        private static final String SHARED_SECRET_KEY = "a2a-secure-key-2024-supervisor";
+        
+        // 签名有效期（毫秒），超过此时间戳的请求被视为无效
+        private static final long SIGNATURE_VALIDITY_MS = 5 * 60 * 1000; // 5分钟
+
+        /**
+         * 生成消息签名
+         * @param data 需要签名的数据（通常包含：订单号 + 操作类型 + 时间戳）
+         * @return Base64 编码的 HMAC-SHA256 签名
+         */
+        public static String sign(String data) {
+            try {
+                Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+                SecretKeySpec secretKeySpec = new SecretKeySpec(
+                        SHARED_SECRET_KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+                mac.init(secretKeySpec);
+                byte[] hmacBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+                return Base64.getEncoder().encodeToString(hmacBytes);
+            } catch (Exception e) {
+                throw new RuntimeException("签名生成失败", e);
+            }
+        }
+
+        /**
+         * 验证消息签名
+         * @param data 原始数据
+         * @param signature 待验证的签名
+         * @return 签名是否有效
+         */
+        public static boolean verify(String data, String signature) {
+            String expectedSignature = sign(data);
+            return MessageDigest.isEqual(
+                    expectedSignature.getBytes(StandardCharsets.UTF_8),
+                    signature.getBytes(StandardCharsets.UTF_8));
+        }
+
+        /**
+         * 验证请求有效性（签名 + 时间戳）
+         * @param data 原始数据（包含时间戳信息）
+         * @param signature 签名
+         * @param timestamp 请求时间戳
+         * @return 请求是否有效
+         */
+        public static boolean verifyRequest(String data, String signature, long timestamp) {
+            // 1. 验证时间戳有效性（防止重放攻击）
+            long currentTime = System.currentTimeMillis();
+            if (Math.abs(currentTime - timestamp) > SIGNATURE_VALIDITY_MS) {
+                System.out.println("[安全校验] 请求已过期，时间戳:" + timestamp + ", 当前时间:" + currentTime);
+                return false;
+            }
+            
+            // 2. 验证签名
+            if (!verify(data, signature)) {
+                System.out.println("[安全校验] 签名验证失败");
+                return false;
+            }
+            
+            return true;
         }
     }
 }

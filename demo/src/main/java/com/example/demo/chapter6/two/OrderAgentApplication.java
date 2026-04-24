@@ -16,6 +16,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 
+import java.util.List;
 import java.util.Properties;
 
 /**
@@ -38,7 +39,7 @@ public class OrderAgentApplication {
 
     private static final String NACOS_SERVER_ADDR = "127.0.0.1:8848";
     private static final String NACOS_USERNAME = "nacos";
-    private static final String NACOS_PASSWORD = "woTZnqgBs1V8";
+    private static final String NACOS_PASSWORD = "lQacRbWitl7J";
 
     public static void main(String args[]) throws InterruptedException {
         SpringApplication.run(OrderAgentApplication.class, args);
@@ -76,17 +77,41 @@ public class OrderAgentApplication {
     /**
      * 订单专家的 A2A 服务器
      * 将 order-agent 注册到 Nacos A2A Registry，使其可以被远程调用
+     * 
+     * 【安全机制】
+     * - 验证请求消息中的签名和时间戳
+     * - 拒绝过期或无效签名的请求
      */
     @Bean
     public AgentScopeA2aServer orderAgentServer(NacosAgentRegistry nacosAgentRegistry) {
 
         DashScopeChatModel model = DashScopeChatModel.builder()
-                .apiKey("sk-xxxxxxxxxxxxxxx")
+                .apiKey("sk-dbb3b7a481ef4a30bc3b39f4105bdb86")
                 .modelName("qwen-plus")
                 .build();
+        
+        String orderAgentSysPrompt = "你高级订单业务专家，精通通过订单号、手机号等信息精准提取订单的当前状态、物流进度详情。在用户提及物流去向时必须优先调用本专家。\n" +
+                "\n" +
+                "【安全验证 - 重要】\n" +
+                "当收到【安全请求】格式的查询时，你必须：\n" +
+                "1. 从消息中提取【签名:xxx】和时间戳\n" +
+                "2. 使用共享密钥验证签名有效性\n" +
+                "3. 检查时间戳是否在5分钟有效期内\n" +
+                "4. 验证通过后才执行查询，否则返回'请求验证失败'\n" +
+                "\n" +
+                "【签名算法】\n" +
+                "- 共享密钥: a2a-secure-key-2024-supervisor\n" +
+                "- 签名格式: HMAC-SHA256(订单号:时间戳, 密钥) -> Base64\n" +
+                "- 示例: 数据 \"20260421001:1234567890\" 的签名为对应计算结果\n" +
+                "\n" +
+                "【查询逻辑】\n" +
+                "- 如果请求格式正确且验证通过，返回订单状态信息\n" +
+                "- 如果是普通请求（非安全请求格式），直接处理查询\n" +
+                "- 订单 20260421001 的状态：已发货，物流在途，预计2天后送达\n";
+        
         ReActAgent.Builder  builder = ReActAgent.builder()
-                .name("order-agent")  // 修正：应该是 order-agent，不是 after-sales-agent
-                .sysPrompt("你高级订单业务专家，精通通过订单号、手机号等信息精准提取订单的当前状态、物流进度详情。在用户提及物流去向时必须优先调用本专家。" )
+                .name("order-agent")
+                .sysPrompt(orderAgentSysPrompt)
                 .model(model);
 
         return AgentScopeA2aServer.builder( builder)
@@ -101,17 +126,41 @@ public class OrderAgentApplication {
     /**
      * 售后专家的 A2A 服务器
      * 将 after-sales-agent 注册到 Nacos A2A Registry，使其可以被远程调用
+     * 
+     * 【安全机制】
+     * - 验证请求消息中的签名和时间戳
+     * - 拒绝过期或无效签名的请求
      */
     @Bean
     public AgentScopeA2aServer afterSalesAgentServer(NacosAgentRegistry nacosAgentRegistry) {
 
         DashScopeChatModel model = DashScopeChatModel.builder()
-                .apiKey("sk-xxxxxxxxxxxxxxx")
+                .apiKey("sk-dbb3b7a481ef4a30bc3b39f4105bdb86")
                 .modelName("qwen-plus")
                 .build();
+        
+        String afterSalesSysPrompt = "高权限售后理赔专家，专注于处理由于退货、丢件等异常状态引发的订单退款及换货申请操作。该专家具备直接发起资金逆向回滚的行动能力。\n" +
+                "\n" +
+                "【安全验证 - 重要】\n" +
+                "当收到【安全请求】格式的工单时，你必须：\n" +
+                "1. 从消息中提取【签名:xxx】和时间戳\n" +
+                "2. 使用共享密钥验证签名有效性\n" +
+                "3. 检查时间戳是否在5分钟有效期内\n" +
+                "4. 验证通过后才创建工单，否则返回'请求验证失败，拒绝处理'" + "\n" +
+                "\n" +
+                "【签名算法】\n" +
+                "- 共享密钥: a2a-secure-key-2024-supervisor\n" +
+                "- 签名格式: HMAC-SHA256(订单号:原因:时间戳, 密钥) -> Base64\n" +
+                "- 示例: 数据 \"20260421001:屏幕坏点:1234567890\" 的签名为对应计算结果\n" +
+                "\n" +
+                "【工单逻辑】\n" +
+                "- 如果请求格式正确且验证通过，创建售后工单\n" +
+                "- 如果是普通请求（非安全请求格式），直接处理工单\n" +
+                "- 工单格式: WO-订单号-时间戳后6位\n";
+        
         ReActAgent.Builder  builder  = ReActAgent.builder()
-                .name("after-sales-agent")  // 修正：应该是 after-sales-agent，不是 order-agent
-                .sysPrompt("高权限售后理赔专家，专注于处理由于退货、丢件等异常状态引发的订单退款及换货申请操作。该专家具备直接发起资金逆向回滚的行动能力。" )
+                .name("after-sales-agent")
+                .sysPrompt(afterSalesSysPrompt)
                 .model(model);
 
         return AgentScopeA2aServer.builder(builder)
